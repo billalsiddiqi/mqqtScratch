@@ -3,5 +3,5 @@
   "image": "dalelane/scratch-extension-devenv:202303182007",
   "features": {
   },
-  "forwardPorts": [ 8000 ]
+  "forwardPorts": [ 8001 ]
 }

@@ -1,11 +1,22 @@
 const BlockType = require('../../extension-support/block-type');
 const ArgumentType = require('../../extension-support/argument-type');
-const TargetType = require('../../extension-support/target-type');
+// const TargetType = require('../../extension-support/target-type');
 
 class Scratch3YourExtension {
 
     constructor (runtime) {
-        // put any setup for your extension here
+        this.runtime = runtime;
+        this.host = 'test.mosquitto.org';
+        this.port = 8081;
+        this.topic = '/scratchExtensionTopic';
+        this.useTLS = true;
+        this.username = null;
+        this.password = null;
+        this.state = { status: 1, msg: 'loaded' };
+        this.mqtt = null;
+        this.reconnectTimeout = 2000;
+        this.messagePayload = '';
+        this.newMessage = false;
     }
 
     /**
@@ -14,10 +25,10 @@ class Scratch3YourExtension {
     getInfo () {
         return {
             // unique ID for your extension
-            id: 'yourScratchExtension',
+            id: 'mqtt',
 
             // name that will be displayed in the Scratch UI
-            name: 'Demo',
+            name: 'MQTT Extension',
 
             // colours to use for your extension blocks
             color1: '#000099',
@@ -30,59 +41,86 @@ class Scratch3YourExtension {
             // your Scratch blocks
             blocks: [
                 {
-                    // name of the function where your block code lives
-                    opcode: 'myFirstBlock',
-
-                    // type of block - choose from:
-                    //   BlockType.REPORTER - returns a value, like "direction"
-                    //   BlockType.BOOLEAN - same as REPORTER but returns a true/false value
-                    //   BlockType.COMMAND - a normal command block, like "move {} steps"
-                    //   BlockType.HAT - starts a stack if its value changes from false to true ("edge triggered")
-                    blockType: BlockType.REPORTER,
-
-                    // label to display on the block
-                    text: 'My first block [MY_NUMBER] and [MY_STRING]',
-
-                    // true if this block should end a stack
-                    terminal: false,
-
-                    // where this block should be available for code - choose from:
-                    //   TargetType.SPRITE - for code in sprites
-                    //   TargetType.STAGE  - for code on the stage / backdrop
-                    // remove one of these if this block doesn't apply to both
-                    filter: [ TargetType.SPRITE, TargetType.STAGE ],
-
-                    // arguments used in the block
+                    opcode: 'sendMessage',
+                    blockType: BlockType.COMMAND,
+                    text: 'send message %s to topic %s',
                     arguments: {
-                        MY_NUMBER: {
-                            // default value before the user sets something
-                            defaultValue: 123,
-
-                            // type/shape of the parameter - choose from:
-                            //     ArgumentType.ANGLE - numeric value with an angle picker
-                            //     ArgumentType.BOOLEAN - true/false value
-                            //     ArgumentType.COLOR - numeric value with a colour picker
-                            //     ArgumentType.NUMBER - numeric value
-                            //     ArgumentType.STRING - text value
-                            //     ArgumentType.NOTE - midi music value with a piano picker
-                            type: ArgumentType.NUMBER
+                        MESSAGE: {
+                            type: ArgumentType.STRING,
+                            defaultValue: 'message'
                         },
-                        MY_STRING: {
-                            // default value before the user sets something
-                            defaultValue: 'hello',
-
-                            // type/shape of the parameter - choose from:
-                            //     ArgumentType.ANGLE - numeric value with an angle picker
-                            //     ArgumentType.BOOLEAN - true/false value
-                            //     ArgumentType.COLOR - numeric value with a colour picker
-                            //     ArgumentType.NUMBER - numeric value
-                            //     ArgumentType.STRING - text value
-                            //     ArgumentType.NOTE - midi music value with a piano picker
-                            type: ArgumentType.STRING
+                        TOPIC: {
+                            type: ArgumentType.STRING,
+                            defaultValue: 'topic'
                         }
                     }
+                },
+                {
+                    opcode: 'getMessage',
+                    blockType: BlockType.REPORTER,
+                    text: 'message'
+                },
+                {
+                    opcode: 'whenMessageArrived',
+                    blockType: BlockType.HAT,
+                    text: 'when message arrived'
+                },
+                {
+                    opcode: 'isMessageArrived',
+                    blockType: BlockType.BOOLEAN,
+                    text: 'message arrived'
+                },
+                {
+                    opcode: 'setTLS',
+                    blockType: BlockType.COMMAND,
+                    text: 'secure connection %m.secureConnection',
+                    arguments: {
+                        SECURE: {
+                            type: ArgumentType.STRING,
+                            menu: 'secureConnection',
+                            defaultValue: 'true'
+                        }
+                    }
+                },
+                {
+                    opcode: 'setHost',
+                    blockType: BlockType.COMMAND,
+                    text: 'Host %s',
+                    arguments: {
+                        HOST: {
+                            type: ArgumentType.STRING,
+                            defaultValue: 'test.mosquitto.org'
+                        }
+                    }
+                },
+                {
+                    opcode: 'setTopic',
+                    blockType: BlockType.COMMAND,
+                    text: 'Subscribe to topic %s',
+                    arguments: {
+                        TOPIC: {
+                            type: ArgumentType.STRING,
+                            defaultValue: '/scratchExtensionTopic'
+                        }
+                    }
+                },
+                {
+                    opcode: 'setPort',
+                    blockType: BlockType.COMMAND,
+                    text: 'Port %n',
+                    arguments: {
+                        PORT: {
+                            type: ArgumentType.STRING,
+                            defaultValue: '8081'
+                        }
+                    }
+                },
+                {
+                    opcode: 'connect',
+                    blockType: BlockType.COMMAND,
+                    text: 'connect'
                 }
-            ]
+            ],
         };
     }
 
@@ -91,9 +129,103 @@ class Scratch3YourExtension {
      * implementation of the block with the opcode that matches this name
      *  this will be called when the block is used
      */
-    myFirstBlock ({ MY_NUMBER, MY_STRING }) {
-        // example implementation to return a string
-        return MY_STRING + ' : doubled would be ' + (MY_NUMBER * 2);
+    getMessage() {
+        return this.messagePayload;
+    }
+
+    whenMessageArrived() {
+        return this.newMessage;
+    }
+
+    isMessageArrived() {
+        return this.newMessage;
+    }
+
+    setTLS(args) {
+        this.useTLS = args.SECURE === 'true';
+    }
+
+    setHost(args) {
+        this.host = args.HOST;
+    }
+
+    setTopic(args) {
+        this.topic = args.TOPIC;
+    }
+
+    setPort(args) {
+        this.port = args.PORT;
+    }
+
+    connect() {
+        this.MQTTconnect();
+    }
+
+    MQTTconnect() {
+        if (typeof path === 'undefined') {
+            path = '/mqtt';
+            console.log('path=' + path);
+        }
+
+        this.mqtt = new Paho.MQTT.Client(
+            this.host,
+            this.port,
+            'web_' + parseInt(Math.random() * 100, 10)
+        );
+
+        var options = {
+            timeout: 3,
+            useSSL: this.useTLS,
+            cleanSession: true,
+            onSuccess: this.onConnect.bind(this),
+            onFailure: this.onConnectionLost.bind(this)
+        };
+
+        this.mqtt.onConnectionLost = this.onConnectionLost.bind(this);
+        this.mqtt.onMessageArrived = this.onMessageArrived.bind(this);
+
+        if (this.username !== null) {
+            options.userName = this.username;
+            options.password = this.password;
+        }
+
+        console.log(
+            'Host=' +
+                this.host +
+                ', port=' +
+                this.port +
+                ', path=' +
+                path +
+                ' TLS = ' +
+                this.useTLS +
+                ' username=' +
+                this.username +
+                ' password=' +
+                this.password
+        );
+        this.mqtt.connect(options);
+    }
+
+    onConnect() {
+        console.log('trying to connect');
+        this.state = { status: 1, msg: 'connecting ...' };
+        console.log('Connected to ' + this.host + ':' + this.port + path);
+        this.mqtt.subscribe(this.topic, { qos: 0 });
+        this.state = { status: 2, msg: 'connected' };
+    }
+
+    onMessageArrived(message) {
+        console.log('message arrived ' + message.payloadString);
+        this.messagePayload = message.payloadString;
+        this.newMessage = true;
+    }
+
+    onConnectionLost(response) {
+        this.state = { status: 1, msg: 'connecting ...' };
+        setTimeout(this.MQTTconnect.bind(this), this.reconnectTimeout);
+        console.log(
+            'connection lost: ' + response.errorMessage + '. Reconnecting'
+        );
     }
 }
 
