@@ -1,13 +1,22 @@
 const BlockType = require('../../extension-support/block-type');
 const ArgumentType = require('../../extension-support/argument-type');
 // const TargetType = require('../../extension-support/target-type');
+const mqtt = require('mqtt')
 
 class Scratch3YourExtension {
     
     constructor (runtime) {
         this.runtime = runtime;
         this.host = 'test.mosquitto.org';
+        this.client = mqtt.connect('mqtt://test.mosquitto.org');
         this.messages = {};
+        this.client.on('message', (topic, message) => {
+            // Convert message from Buffer to string
+            const messageStr = message.toString();
+            
+            // Store the latest message for each topic
+            this.messages[topic] = messageStr;
+        });
     }
 
     /**
@@ -73,7 +82,7 @@ class Scratch3YourExtension {
     }
 
     publish(args) {
-        console.log(args)
+        this.client.publish(args.topic, args.message);
     }
 
     onMessage(args) {
