@@ -1,7 +1,6 @@
 const BlockType = require('../../extension-support/block-type');
 const ArgumentType = require('../../extension-support/argument-type');
 // const TargetType = require('../../extension-support/target-type');
-eval('let mqtt;');
 
 class Scratch3YourExtension {
     
@@ -65,7 +64,7 @@ class Scratch3YourExtension {
                     // Execute the script using eval
                     eval(script);
                     // Initialize the MQTT client
-                    this.client = mqtt.connect('mqtt://test.mosquitto.org');
+                    this.client = script.connect('mqtt://test.mosquitto.org');
                     // Event handlers for MQTT client
                     this.client.on('connect', () => {
                         console.log('Connected to MQTT broker');
@@ -98,5 +97,6 @@ class Scratch3YourExtension {
         });
     }
 }
+
 
 module.exports = Scratch3YourExtension;
