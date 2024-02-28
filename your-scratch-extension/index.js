@@ -7,6 +7,7 @@ class Scratch3YourExtension {
     constructor(runtime) {
         this.runtime = runtime;
         this.client = null;
+        this.latestMessages = {};
     }
 
     /**
@@ -46,39 +47,72 @@ class Scratch3YourExtension {
                         },
                     },
                 },
+                {
+                    opcode: 'sendMessage',
+                    blockType: BlockType.COMMAND,
+                    text: 'Send message [message] to topic [topic]',
+                    arguments: {
+                        topic: {
+                            type: ArgumentType.STRING,
+                            defaultValue: 'test/topic',
+                        },
+                        message: {
+                            type: ArgumentType.STRING,
+                            defaultValue: 'Hello, MQTT!',
+                        },
+                    },
+                },
+                {
+                    opcode: 'getLatestMessage',
+                    blockType: BlockType.REPORTER,
+                    text: 'Get latest message from topic [topic]',
+                    arguments: {
+                        topic: {
+                            type: ArgumentType.STRING,
+                            defaultValue: 'test/topic',
+                        },
+                    },
+                },
             ],
         };
     }
 
+
     connectToBroker() {
         return new Promise((resolve, reject) => {
-            const url = 'https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.3.6/mqtt.js';
-            fetch(url)
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`Failed to fetch ${url}: ${response.status} ${response.statusText}`);
-                    }
-                    return response.text();
-                })
-                .then(script => {
-                    // Execute the script using eval
-                    eval(script);
-                    // Initialize the MQTT client
-                    this.client = script.connect('mqtt://test.mosquitto.org');
-                    // Event handlers for MQTT client
-                    this.client.on('connect', () => {
-                        console.log('Connected to MQTT broker');
-                        resolve();
-                    });
-                    this.client.on('error', (error) => {
-                        console.error('MQTT connection error:', error);
-                        reject(error);
-                    });
-                })
-                .catch(error => {
-                    console.error('Error loading MQTT library:', error);
+            const url = 'https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.3.6/mqtt.min.js';
+            const script = document.createElement('script');
+            script.src = url;
+            script.onload = () => {
+                // Check if the library properly exposes functionality
+                if (typeof mqtt === 'undefined' || typeof mqtt.connect !== 'function') {
+                    console.error('Error: MQTT library not properly loaded from CDN');
+                    reject(new Error('MQTT library not properly loaded from CDN'));
+                    return;
+                }
+    
+                // Initialize the MQTT client
+                this.client = mqtt.connect('wss://test.mosquitto.org:8081/mqtts');
+                // Event handlers for MQTT client
+                this.client.on('connect', () => {
+                    console.log('Connected to MQTT broker');
+                    resolve();
+                });
+                this.client.on('error', (error) => {
+                    console.error('MQTT connection error:', error);
                     reject(error);
                 });
+                this.client.on('message', (topic, message) => {
+                    // Store the latest message for the topic
+                    this.latestMessages[topic] = message.toString();
+                });
+            };
+            script.onerror = (error) => {
+                console.error('Error loading MQTT library:', error);
+                reject(error);
+            };
+    
+            document.head.appendChild(script);
         });
     }
 
@@ -95,6 +129,27 @@ class Scratch3YourExtension {
                 console.log(`Subscribed to topic: ${topic}`);
             }
         });
+    }
+
+    sendMessage(args) {
+        const topic = args.topic;
+        const message = args.message;
+        if (!this.client) {
+            console.error('MQTT client is not initialized. Please connect to MQTT broker first.');
+            return;
+        }
+        this.client.publish(topic, message, (err) => {
+            if (err) {
+                console.error('Error publishing message:', err);
+            } else {
+                console.log(`Message published to topic: ${topic}`);
+            }
+        });
+    }
+
+    getLatestMessage(args) {
+        const topic = args.topic;
+        return this.latestMessages[topic] || '';
     }
 }
 
