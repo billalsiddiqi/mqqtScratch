@@ -1,22 +1,13 @@
 const BlockType = require('../../extension-support/block-type');
 const ArgumentType = require('../../extension-support/argument-type');
 // const TargetType = require('../../extension-support/target-type');
-const mqtt = require('mqtt')
+eval('let mqtt;');
 
 class Scratch3YourExtension {
     
-    constructor (runtime) {
+    constructor(runtime) {
         this.runtime = runtime;
-        this.host = 'test.mosquitto.org';
-        this.client = mqtt.connect('mqtt://test.mosquitto.org');
-        this.messages = {};
-        this.client.on('message', (topic, message) => {
-            // Convert message from Buffer to string
-            const messageStr = message.toString();
-            
-            // Store the latest message for each topic
-            this.messages[topic] = messageStr;
-        });
+        this.client = null;
     }
 
     /**
@@ -41,60 +32,70 @@ class Scratch3YourExtension {
             // your Scratch blocks
             blocks: [
                 {
-                    opcode: 'publish',
+                    opcode: 'connectToBroker',
                     blockType: BlockType.COMMAND,
-                    text: 'publish [message] to [topic]',
+                    text: 'Connect to MQTT Broker',
+                },
+                {
+                    opcode: 'subscribeToTopic',
+                    blockType: BlockType.COMMAND,
+                    text: 'Subscribe to topic [topic]',
                     arguments: {
-                        message: {
+                        topic: {
                             type: ArgumentType.STRING,
-                            defaultValue: 'Hello mqtt'
+                            defaultValue: 'test/topic',
                         },
-                        topic: {
-                            type: ArgumentType.STRING,
-                            defaultValue: 'scratch-extension'
-                        }
-                    }
+                    },
                 },
-                {
-                    opcode: 'onMessage',
-                    blockType: BlockType.HAT,
-                    text: 'when new message on [topic]',
-                    arguments: {
-                        topic: {
-                            type: ArgumentType.STRING,
-                            defaultValue: 'scratch-extension'
-                        }
-                    }
-                },
-                {
-                    opcode: 'getMessage',
-                    blockType: BlockType.REPORTER,
-                    text: 'latest message on [topic]',
-                    arguments: {
-                        topic: {
-                            type: ArgumentType.STRING,
-                            defaultValue: 'scratch-extension'
-                        }
-                    }
-                }
-            ]
+            ],
         };
     }
 
-    publish(args) {
-        this.client.publish(args.topic, args.message);
+    connectToBroker() {
+        return new Promise((resolve, reject) => {
+            const url = 'https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.3.6/mqtt.js';
+            fetch(url)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`Failed to fetch ${url}: ${response.status} ${response.statusText}`);
+                    }
+                    return response.text();
+                })
+                .then(script => {
+                    // Execute the script using eval
+                    eval(script);
+                    // Initialize the MQTT client
+                    this.client = mqtt.connect('mqtt://test.mosquitto.org');
+                    // Event handlers for MQTT client
+                    this.client.on('connect', () => {
+                        console.log('Connected to MQTT broker');
+                        resolve();
+                    });
+                    this.client.on('error', (error) => {
+                        console.error('MQTT connection error:', error);
+                        reject(error);
+                    });
+                })
+                .catch(error => {
+                    console.error('Error loading MQTT library:', error);
+                    reject(error);
+                });
+        });
     }
 
-    onMessage(args) {
-        // Check if a new message has been received on the specified topic
+    subscribeToTopic(args) {
         const topic = args.topic;
-        return this.messages.hasOwnProperty(topic);
-    }
-
-    getMessage(args) {
-        // Return the latest message received on the specified topic
-        const topic = args.topic;
-        return this.messages[topic] || '';
+        if (!this.client) {
+            console.error('MQTT client is not initialized. Please connect to MQTT broker first.');
+            return;
+        }
+        this.client.subscribe(topic, (err) => {
+            if (err) {
+                console.error('Error subscribing to topic:', err);
+            } else {
+                console.log(`Subscribed to topic: ${topic}`);
+            }
+        });
     }
 }
 
